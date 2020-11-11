@@ -4,311 +4,334 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using EVERFI.Foundry.Classes;
+using System.Net.Http;
+using RestSharp.Authenticators;
+using System.Web.UI;
 
-namespace EVERFI.Foundry
-{
-    public partial class API
-    {
-        public User AddUser(User MyUser)
-        {
+namespace EVERFI.Foundry {
+  public partial class API {
 
-            RestRequest request = new RestRequest("{version}/admin/registration_sets", Method.POST);
+    #region Add User
 
-            request.Parameters.Clear();
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            request.AddParameter("application/json", API.UserJson(MyUser), ParameterType.RequestBody);
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
+    public User AddUser(User MyUser) {
 
-            IRestResponse response = _client.Execute<User>(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
+      var Request = new RestRequest($"{_ver}/admin/registration_sets", Method.POST);
 
-            if (numericCode != 201)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
+      Request.Parameters.Clear();
+      Request.AddParameter("application/json", API.UserJson(MyUser), ParameterType.RequestBody);
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
 
-            UserDataJson userData = JsonConvert.DeserializeObject<UserDataJson>(response.Content);
-            Console.WriteLine("User successfully added.");
+      var Response = _client.Execute<User>(Request);
+      var NumericCode = (int)Response.StatusCode;
 
-            User user = userData.Data.UserAttributes;
+      if (NumericCode != 201) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
 
-            if (user.Location != null)
-            {
-                user.Location = GetLocationById(user.LocationId);
-            }
+      var UserData = JsonConvert.DeserializeObject<UserDataJson>(Response.Content);
 
-            user.ConfigureUserData(userData.Data);
+      var User = UserData.Data.UserAttributes;
 
-            return user;
-        }
+      if (User.Location != null) {
+        User.Location = GetLocationById(User.LocationId);
+      }
 
-        public User UpdateUser(User MyUser)
-        {
+      User.ConfigureUserData(UserData.Data);
 
-            RestRequest request = new RestRequest("{version}/admin/registration_sets/{id}", Method.PATCH);
-
-            request.Parameters.Clear();
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            request.AddParameter("id", MyUser.UserId, ParameterType.UrlSegment);
-            request.AddParameter("application/json", API.UserJson(MyUser), ParameterType.RequestBody);
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
-
-            IRestResponse response = _client.Execute(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
-
-            if (numericCode != 200)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
-
-            UserDataJson userData = JsonConvert.DeserializeObject<UserDataJson>(response.Content);
-            Console.WriteLine("User successfully updated.");
-
-            User user = userData.Data.UserAttributes;
-
-            if (user.Location != null)
-            {
-                user.Location = GetLocationById(user.LocationId);
-            }
-
-            user.ConfigureUserData(userData.Data);
-
-            return user;
-        }
-
-        public User GetUserById(string UserId)
-        {
-            Console.WriteLine("Getting User " + UserId + "...");
-
-            RestRequest request = new RestRequest("{version}/admin/users/{id}", Method.GET);
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            request.AddParameter("id", UserId, ParameterType.UrlSegment);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
-
-            IRestResponse response = _client.Execute(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
-
-            if (numericCode != 200)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
-
-            UserDataJson userData = JsonConvert.DeserializeObject<UserDataJson>(response.Content);
-
-            User retrievedUser = userData.Data.UserAttributes;
-            retrievedUser.ConfigureUserData(userData.Data);
-            if (retrievedUser.Location != null)
-            {
-                retrievedUser.Location = GetLocationById(retrievedUser.LocationId);
-            }
-
-            Console.WriteLine("User Retrieved: " + retrievedUser.FirstName + " " + retrievedUser.LastName + "...");
-
-            return retrievedUser;
-        }
-
-        public List<User> GetUserByEmail(string UserEmail)
-        {
-            Console.WriteLine("Getting User(s) with email: " + UserEmail + "...");
-
-            RestRequest request = new RestRequest("{version}/admin/users/", Method.GET);
-
-            request.Parameters.Clear();
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            request.AddParameter("filter[email]", UserEmail, ParameterType.QueryString);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
-
-            IRestResponse response = _client.Execute(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
-
-            if (numericCode != 200)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
-
-            UserDataJsonList userData = JsonConvert.DeserializeObject<UserDataJsonList>(response.Content);
-            List<User> users = new List<User>();
-
-            foreach (UserData data in userData.Data)
-            {
-                User newUser = data.UserAttributes;
-                newUser.ConfigureUserData(data);
-                if (newUser.Location != null)
-                {
-                    newUser.Location = GetLocationById(newUser.LocationId);
-                }
-                users.Add(newUser);
-                Console.WriteLine("User Retrieved: " + newUser.FirstName + " " + newUser.LastName + "...");
-            }
-
-            return users;
-        }
-
-        // TODO: Implement paging in this
-        public List<User> GetUsersBySearch(Dictionary<SearchTerms, string> searchTerms)
-        {
-            RestRequest request = new RestRequest("{version}/admin/users/", Method.GET);
-
-            request.Parameters.Clear();
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            foreach (SearchTerms term in searchTerms.Keys)
-            {
-                request.AddParameter("filter[" + GetDescription(term) + "]", searchTerms[term], ParameterType.QueryString);
-            }
-            request.AddHeader("Content-Type", "application/json");
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
-
-            IRestResponse response = _client.Execute(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
-
-            if (numericCode != 200)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
-
-            UserDataJsonList userData = JsonConvert.DeserializeObject<UserDataJsonList>(response.Content);
-            List<User> users = new List<User>();
-
-            foreach (UserData data in userData.Data)
-            {
-                User newUser = data.UserAttributes;
-                newUser.ConfigureUserData(data);
-                if (newUser.Location != null)
-                {
-                    newUser.Location = GetLocationById(newUser.LocationId);
-                }
-                users.Add(newUser);
-            }
-
-            return users;
-        }
-
-        public List<User> GetUsers(int page)
-        {
-            Console.WriteLine("Getting " + returnPerPage + "users on page " + page.ToString() + "...");
-
-            RestRequest request = new RestRequest("/{version}/admin/users", Method.GET);
-
-            request.Parameters.Clear();
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            request.AddParameter("page[page]", currPage, ParameterType.QueryString);
-            request.AddParameter("page[per_page]", returnPerPage, ParameterType.QueryString);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
-
-            IRestResponse response = _client.Execute(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
-
-            if (numericCode != 200)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
-
-            UserDataJsonList userData = JsonConvert.DeserializeObject<UserDataJsonList>(response.Content);
-            List<User> users = new List<User>();
-
-            foreach (UserData data in userData.Data)
-            {
-                User newUser = data.UserAttributes;
-                newUser.ConfigureUserData(data);
-                if (newUser.Location != null)
-                {
-                    newUser.Location = GetLocationById(newUser.LocationId);
-                }
-                users.Add(newUser);
-            }
-
-            return users;
-        }
-
-        public (List<User>, bool) GetUsers()
-        {
-            bool returnValue = true;
-
-            RestRequest request = new RestRequest("/{version}/admin/users", Method.GET);
-
-            request.Parameters.Clear();
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            request.AddParameter("page[page]", currPage, ParameterType.QueryString);
-            request.AddParameter("page[per_page]", returnPerPage, ParameterType.QueryString);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
-
-            IRestResponse response = _client.Execute(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
-
-            if (numericCode != 200)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
-
-            UserDataJsonList userData = JsonConvert.DeserializeObject<UserDataJsonList>(response.Content);
-            List<User> users = new List<User>();
-
-            foreach (UserData data in userData.Data)
-            {
-                User newUser = data.UserAttributes;
-                newUser.ConfigureUserData(data);
-                if (newUser.Location != null)
-                {
-                    newUser.Location = GetLocationById(newUser.LocationId);
-                }
-                users.Add(newUser);
-            }
-
-            MetaJson metaData = JsonConvert.DeserializeObject<MetaJson>(response.Content);
-
-            Console.WriteLine("Returning " + users.Count + " users. Page " + currPage + " of " + Math.Ceiling((double)metaData.Meta.Count / returnPerPage));
-
-            if (currPage * returnPerPage >= metaData.Meta.Count)
-            {
-                returnValue = false;
-                currPage = 1;
-            }
-            else
-            {
-                currPage += 1;
-            }
-
-            return (users, returnValue);
-        }
-
-        public void ResetGetUsers()
-        {
-            currPage = 1;
-        }
-
-        public int GetUserCount()
-        {
-            RestRequest request = new RestRequest("/{version}/admin/users/?page[page]={page_num}&page[per_page]={num_per}", Method.GET);
-            request.Parameters.Clear();
-            request.AddParameter("version", _ver, ParameterType.UrlSegment);
-            request.AddParameter("page_num", 1, ParameterType.UrlSegment);
-            request.AddParameter("num_per", returnPerPage, ParameterType.UrlSegment);
-            request.AddHeader("Content-Type", "application/json");
-            request.AddParameter("Authorization", _token.token_type + " " + _token.access_token, ParameterType.HttpHeader);
-
-            IRestResponse response = _client.Execute(request);
-            HttpStatusCode statusCode = response.StatusCode;
-            int numericCode = (int)statusCode;
-
-            if (numericCode != 200)
-            {
-                throw new FoundryException(response.ErrorMessage, numericCode, response.Content);
-            }
-
-            MetaJson metaData = JsonConvert.DeserializeObject<MetaJson>(response.Content);
-
-            return metaData.Meta.Count;
-        }
+      return User;
     }
+
+    #endregion Add User
+
+    #region Update User
+
+    public User UpdateUser(User MyUser) {
+
+      var Request = new RestRequest($"{_ver}/admin/registration_sets/{MyUser.UserId}", Method.PATCH);
+
+      Request.Parameters.Clear();
+      Request.AddParameter("application/json", API.UserJson(MyUser), ParameterType.RequestBody);
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
+
+      var Response = _client.Execute(Request);
+      var NumericCode = (int)Response.StatusCode;
+
+      if (NumericCode != 200) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
+
+      var UserData = JsonConvert.DeserializeObject<UserDataJson>(Response.Content);
+
+      var User = UserData.Data.UserAttributes;
+
+      if (User.Location != null) {
+        User.Location = GetLocationById(User.LocationId);
+      }
+
+      User.ConfigureUserData(UserData.Data);
+
+      return User;
+    }
+
+    #endregion Update User
+
+    #region Get Users
+
+    public User GetUserById(string UserId) {
+
+      var Request = new RestRequest($"{_ver}/admin/users/{UserId}", Method.GET);
+
+      Request.AddHeader("Content-Type", "application/json");
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
+
+      var Response = _client.Execute<User>(Request);
+      var NumericCode = (int)Response.StatusCode;
+
+      if (NumericCode != 201) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
+
+      var UserData = JsonConvert.DeserializeObject<UserDataJson>(Response.Content);
+
+      var RetrievedUser = UserData.Data.UserAttributes;
+      RetrievedUser.ConfigureUserData(UserData.Data);
+
+      if (RetrievedUser.Location != null) {
+        RetrievedUser.Location = GetLocationById(RetrievedUser.LocationId);
+      }
+
+      return RetrievedUser;
+    }
+
+    public List<User> GetUserByEmail(string UserEmail) {
+
+      var Request = new RestRequest($"{_ver}/admin/users/", Method.GET);
+
+      Request.Parameters.Clear();
+      Request.AddParameter("filter[email]", UserEmail, ParameterType.QueryString);
+      Request.AddHeader("Content-Type", "application/json");
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
+
+      var Response = _client.Execute<User>(Request);
+      var NumericCode = (int)Response.StatusCode;
+
+      if (NumericCode != 201) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
+
+      var UserData = JsonConvert.DeserializeObject<UserDataJsonList>(Response.Content);
+      var Users = new List<User>();
+
+      foreach (var Data in UserData.Data) {
+
+        var NewUser = Data.UserAttributes;
+        NewUser.ConfigureUserData(Data);
+
+        if (NewUser.Location != null) {
+          NewUser.Location = GetLocationById(NewUser.LocationId);
+        }
+
+        Users.Add(NewUser);
+      }
+
+      return Users;
+    }
+
+    // TODO: Implement paging in this
+    public List<User> GetUsersBySearch(Dictionary<SearchTerms, string> searchTerms) {
+
+      /*
+      using (var Client = new HttpClient()) {
+
+        var URL = $"{_client.BaseUrl}{_ver}/admin/users/";
+
+        foreach (var Term in searchTerms.Keys) {
+          int Count = 0;
+          var Separator = "&";
+
+          if (Count == 0) {
+            Separator = "?";
+          }
+          URL = $"{URL}{Separator}filter[{GetDescription(Term)}]={searchTerms[Term]}";
+        }
+
+        //Client.BaseAddress = new Uri(URL);
+        Client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+        //Client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _token.access_token);
+        Client.DefaultRequestHeaders.Add("Authorization", $"Bearer {_token.access_token}");
+
+        var Response = Client.GetAsync(URL).Result;
+
+        var Code = (int)Response.StatusCode;
+
+        if (Code != 200) {
+            throw new FoundryException(Response.Content.ToString(), Code, Response.Content.ToString());
+          }
+
+        var UserData = JsonConvert.DeserializeObject<UserDataJsonList>(Response.Content.ToString());
+        var Users = new List<User>();
+
+        foreach (var Data in UserData.Data) {
+
+          var NewUser = Data.UserAttributes;
+          NewUser.ConfigureUserData(Data);
+
+          if (NewUser.Location != null) {
+            NewUser.Location = GetLocationById(NewUser.LocationId);
+          }
+
+          Users.Add(NewUser);
+        }
+
+        return Users;
+      }*/
+
+      /*var Client = new RestClient(_client.BaseUrl) {
+        Authenticator = new OAuth2AuthorizationRequestHeaderAuthenticator(_token.access_token)
+      };
+      */
+      var Request = new RestRequest($"{_ver}/admin/users/", Method.GET);
+
+      Request.Parameters.Clear();
+
+      foreach (var Term in searchTerms.Keys) {
+        Request.AddParameter("filter[" + GetDescription(Term) + "]", searchTerms[Term], ParameterType.QueryString);
+      }
+
+      Request.AddHeader("Content-Type", "application/json");
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
+
+      var Response = _client.Execute(Request);
+      var NumericCode = (int)Response.StatusCode;
+
+      if (NumericCode != 200) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
+
+      var UserData = JsonConvert.DeserializeObject<UserDataJsonList>(Response.Content);
+      var Users = new List<User>();
+
+      foreach (var Data in UserData.Data) {
+
+        var NewUser = Data.UserAttributes;
+        NewUser.ConfigureUserData(Data);
+
+        if (NewUser.Location != null) {
+          NewUser.Location = GetLocationById(NewUser.LocationId);
+        }
+
+        Users.Add(NewUser);
+      }
+
+      return Users;
+    }
+
+    public List<User> GetUsers(int page) {
+
+      var Request = new RestRequest($"/{_ver}/admin/users", Method.GET);
+
+      Request.Parameters.Clear();
+      Request.AddParameter("page[page]", currPage, ParameterType.QueryString);
+      Request.AddParameter("page[per_page]", returnPerPage, ParameterType.QueryString);
+      Request.AddHeader("Content-Type", "application/json");
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
+
+      var Response = _client.Execute<User>(Request);
+      var NumericCode = (int)Response.StatusCode;
+
+      if (NumericCode != 201) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
+
+      var UserData = JsonConvert.DeserializeObject<UserDataJsonList>(Response.Content);
+      var Users = new List<User>();
+
+      foreach (var Data in UserData.Data) {
+
+        var NewUser = Data.UserAttributes;
+        NewUser.ConfigureUserData(Data);
+
+        if (NewUser.Location != null) {
+          NewUser.Location = GetLocationById(NewUser.LocationId);
+        }
+
+        Users.Add(NewUser);
+      }
+
+      return Users;
+    }
+
+    public Tuple<List<User>, bool> GetUsers() {
+
+      var FinalPage = true;
+
+      var Request = new RestRequest($"/{_ver}/admin/users", Method.GET);
+
+      Request.Parameters.Clear();
+      Request.AddParameter("page[page]", currPage, ParameterType.QueryString);
+      Request.AddParameter("page[per_page]", returnPerPage, ParameterType.QueryString);
+      Request.AddHeader("Content-Type", "application/json");
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
+
+      var Response = _client.Execute<User>(Request);
+      var NumericCode = (int)Response.StatusCode;
+
+      if (NumericCode != 201) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
+
+      var UserData = JsonConvert.DeserializeObject<UserDataJsonList>(Response.Content);
+      var Users = new List<User>();
+
+      foreach (var Data in UserData.Data) {
+
+        var NewUser = Data.UserAttributes;
+        NewUser.ConfigureUserData(Data);
+
+        if (NewUser.Location != null) {
+          NewUser.Location = GetLocationById(NewUser.LocationId);
+        }
+
+        Users.Add(NewUser);
+      }
+
+      var MetaData = JsonConvert.DeserializeObject<MetaJson>(Response.Content);
+
+      if (currPage * returnPerPage >= MetaData.Meta.Count) {
+        FinalPage = false;
+        currPage = 1;
+      } else {
+        currPage += 1;
+      }
+
+      return new Tuple<List<User>, bool>(Users, FinalPage);
+    }
+
+    public void ResetGetUsers() {
+      currPage = 1;
+    }
+
+    public int GetUserCount() {
+
+      var Request = new RestRequest($"/{_ver}/admin/users/?page[page]={1}&page[per_page]={returnPerPage}", Method.GET);
+
+      Request.Parameters.Clear();
+      Request.AddHeader("Content-Type", "application/json");
+      Request.AddParameter("Authorization", $"Bearer {_token.access_token}", ParameterType.HttpHeader);
+
+      var Response = _client.Execute<User>(Request);
+      var NumericCode = (int)Response.StatusCode;
+
+      if (NumericCode != 201) {
+        throw new FoundryException(Response.ErrorMessage, NumericCode, Response.Content);
+      }
+
+      var MetaData = JsonConvert.DeserializeObject<MetaJson>(Response.Content);
+
+      return MetaData.Meta.Count;
+    }
+
+    #endregion Get Users
+
+  }
 }
